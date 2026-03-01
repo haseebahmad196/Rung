@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/* =========================================
+   Design Tokens (edit here to change theme)
+   ========================================= */
+:root {
+  --bg: 12 16 23;
+  --card: 18 24 34;
+  --text: 232 238 246;
+  --muted: 159 176 195;
+  --border: 255 255 255;
+  --accent: 77 163 255;
+
+  --radius: 16px;
+}
+
+/* Base page styling (plain CSS => no Tailwind @apply issues) */
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: rgb(var(--bg));
+  color: rgb(var(--text));
+}
+
+@keyframes seat-bob {
+  0% {
+    margin-top: 0;
+  }
+  50% {
+    margin-top: -9px;
+  }
+  100% {
+    margin-top: 0;
+  }
+}
+
+@keyframes glass-shift {
+  0% {
+    transform: translateX(-120%) rotate(8deg);
+    opacity: 0;
+  }
+  40% {
+    opacity: 0.24;
+  }
+  100% {
+    transform: translateX(140%) rotate(8deg);
+    opacity: 0;
+  }
+}
+
+.glass-card-anim {
+  overflow: hidden;
+  position: relative;
+}
+
+.glass-card-anim::after {
+  content: "";
+  position: absolute;
+  top: -25%;
+  left: -45%;
+  width: 52%;
+  height: 160%;
+  background: linear-gradient(
+    120deg,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, 0.34),
+    rgba(255, 255, 255, 0)
+  );
+  animation: glass-shift 3.6s linear infinite;
+}
+
+/* Component: container */
+@layer components {
+  .container-app {
+    width: 100%;
+    max-width: 48rem;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 1rem;
+  }
+}
