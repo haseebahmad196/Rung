@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import {
   applyBidDecision,
@@ -19,6 +19,7 @@ import {
   type PlayerState,
   type RoundState,
   type Suit,
+  type Team,
 } from "@/features/game";
 import { buildPresetPlayers } from "@/features/game/helpers/players";
 import { PlayingCardView } from "./PlayingCardView";
@@ -28,10 +29,14 @@ type GameStartPresetPanelProps = {
   localPlayerName: string;
   localSeatNumber: number;
   takenSeats: Record<number, string>;
-  onTrumpSelected?: (card: GameCard) => void;
+  onTrumpSelected?: (card: GameCard | null) => void;
   onHighestBidChange?: (bid: BidValue | null) => void;
   onActiveSeatChange?: (seatNumber: number | null) => void;
 };
+
+const MATCH_TARGET_POINTS = 60;
+const SIDE_A_LABEL = "Side 1";
+const SIDE_B_LABEL = "Side 2";
 
 export function GameStartPresetPanel({
   localPlayerName,
@@ -60,6 +65,11 @@ export function GameStartPresetPanel({
   const [openingHands, setOpeningHands] = useState<PlayerState[] | null>(null);
   const [fullHands, setFullHands] = useState<PlayerState[] | null>(null);
   const [roundState, setRoundState] = useState<RoundState | null>(null);
+  const [roundNumber, setRoundNumber] = useState(1);
+  const [matchScore, setMatchScore] = useState<{ teamA: number; teamB: number }>({ teamA: 0, teamB: 0 });
+  const [matchWinner, setMatchWinner] = useState<Team | null>(null);
+  const [lastRoundSummary, setLastRoundSummary] = useState<string | null>(null);
+  const processedRoundIdRef = useRef<number | null>(null);
 
   const occupiedSeatSet = useMemo(() => {
     const seatSet = new Set(Object.keys(takenSeats).map((value) => Number(value)));
@@ -74,8 +84,15 @@ export function GameStartPresetPanel({
     setOpeningHands(null);
     setFullHands(null);
     setRoundState(null);
+    setRoundNumber(1);
+    setMatchScore({ teamA: 0, teamB: 0 });
+    setMatchWinner(null);
+    setLastRoundSummary(null);
+    processedRoundIdRef.current = null;
     setConfirmedTrump(null);
+    setSelectedTrumpCardId(null);
     setTurnSecondsLeft(8);
+    onTrumpSelected?.(null);
     onHighestBidChange?.(null);
   }, [players]);
 
@@ -142,7 +159,7 @@ export function GameStartPresetPanel({
 
       const dealt = dealRemainingToFullHands(openingHands);
       const nextRound = createRoundState({
-        roundId: 1,
+        roundId: roundNumber,
         dealerPlayerId: winner.id,
         firstTurnPlayerId: winner.id,
         players: dealt,
@@ -170,6 +187,55 @@ export function GameStartPresetPanel({
   const isBidPhase = isSeatsFull && Boolean(openingHands) && !biddingState.isComplete;
   const isTrumpPhase = isSeatsFull && biddingState.isComplete && !confirmedTrump;
   const isRoundPhase = Boolean(confirmedTrump && roundState && !roundState.isComplete);
+  const completedTricks = roundState?.completedTricks.length ?? 0;
+  const scoring = useMemo(() => {
+    if (!roundState) {
+      return {
+        teamAPoints: 0,
+        teamBPoints: 0,
+      };
+    }
+
+    const teamByPlayerId = players.reduce<Record<string, "A" | "B">>((acc, player) => {
+      acc[player.id] = player.team;
+      return acc;
+    }, {});
+
+    // First claim needs 5 accumulated tricks, then each next claim needs 3.
+    let requiredPile = 5;
+    let accumulatedPile = 0;
+    let previousWinnerPlayerId: string | null = null;
+    let teamAPoints = 0;
+    let teamBPoints = 0;
+
+    for (let trickIndex = 0; trickIndex < roundState.completedTricks.length; trickIndex += 1) {
+      const winnerPlayerId = roundState.completedTricks[trickIndex].winnerPlayerId;
+      accumulatedPile += 1;
+
+      const isConsecutiveBySameSenior = Boolean(
+        winnerPlayerId && previousWinnerPlayerId && winnerPlayerId === previousWinnerPlayerId
+      );
+
+      if (isConsecutiveBySameSenior && accumulatedPile >= requiredPile) {
+        const winnerTeam = teamByPlayerId[winnerPlayerId as string] ?? null;
+        if (winnerTeam === "A") {
+          teamAPoints += accumulatedPile;
+        } else if (winnerTeam === "B") {
+          teamBPoints += accumulatedPile;
+        }
+
+        accumulatedPile = 0;
+        requiredPile = 3;
+      }
+
+      previousWinnerPlayerId = winnerPlayerId ?? null;
+    }
+
+    return {
+      teamAPoints,
+      teamBPoints,
+    };
+  }, [roundState, players]);
   const activeTurnPlayerId = isRoundPhase
     ? roundState?.currentTurnPlayerId ?? null
     : isTrumpPhase
@@ -177,6 +243,65 @@ export function GameStartPresetPanel({
     : isBidPhase
     ? currentPlayer?.id ?? null
     : null;
+
+  useEffect(() => {
+    if (!roundState || !roundState.isComplete) return;
+    if (matchWinner) return;
+    if (processedRoundIdRef.current === roundState.id) return;
+
+    const bidderPlayerId = biddingState.highestBid?.playerId;
+    const bidValue = biddingState.highestBid?.bid;
+    if (!bidderPlayerId || !bidValue) return;
+
+    const bidder = players.find((player) => player.id === bidderPlayerId);
+    if (!bidder) return;
+
+    const bidderTeamPoints = bidder.team === "A" ? scoring.teamAPoints : scoring.teamBPoints;
+    const bidderWonBid = bidderTeamPoints >= bidValue;
+    const awardedTeam: Team = bidderWonBid ? bidder.team : bidder.team === "A" ? "B" : "A";
+    const awardedPoints = bidderWonBid ? bidValue : bidValue * 2;
+    processedRoundIdRef.current = roundState.id;
+
+    setMatchScore((prev) => {
+      const next =
+        awardedTeam === "A"
+          ? { teamA: prev.teamA + awardedPoints, teamB: prev.teamB }
+          : { teamA: prev.teamA, teamB: prev.teamB + awardedPoints };
+
+      if (next.teamA >= MATCH_TARGET_POINTS || next.teamB >= MATCH_TARGET_POINTS) {
+        setMatchWinner(next.teamA >= MATCH_TARGET_POINTS ? "A" : "B");
+      }
+
+      return next;
+    });
+
+    setLastRoundSummary(
+      bidderWonBid
+        ? `Bidder ${bidder.team === "A" ? SIDE_A_LABEL : SIDE_B_LABEL} made ${bidValue} and earned +${awardedPoints}.`
+        : `Bidder ${bidder.team === "A" ? SIDE_A_LABEL : SIDE_B_LABEL} failed ${bidValue}. ${awardedTeam === "A" ? SIDE_A_LABEL : SIDE_B_LABEL} earned +${awardedPoints}.`
+    );
+  }, [roundState, scoring.teamAPoints, scoring.teamBPoints, biddingState.highestBid, players, matchWinner]);
+
+  useEffect(() => {
+    if (!roundState || !roundState.isComplete) return;
+    if (matchWinner) return;
+
+    const timer = setTimeout(() => {
+      processedRoundIdRef.current = null;
+      setRoundNumber((prev) => prev + 1);
+      setBiddingState(createBiddingState(players));
+      setOpeningHands(null);
+      setFullHands(null);
+      setRoundState(null);
+      setConfirmedTrump(null);
+      setSelectedTrumpCardId(null);
+      setTurnSecondsLeft(8);
+      onTrumpSelected?.(null);
+      onHighestBidChange?.(null);
+    }, 1400);
+
+    return () => clearTimeout(timer);
+  }, [roundState, matchWinner, players, onTrumpSelected, onHighestBidChange]);
 
   useEffect(() => {
     if (!isSeatsFull) {
@@ -192,6 +317,11 @@ export function GameStartPresetPanel({
     const activePlayer = players.find((player) => player.id === activeTurnPlayerId);
     onActiveSeatChange?.(activePlayer ? activePlayer.seat + 1 : null);
   }, [isSeatsFull, activeTurnPlayerId, players, onActiveSeatChange]);
+
+  const activeSeniorName = useMemo(() => {
+    if (!activeTurnPlayerId) return "-";
+    return players.find((player) => player.id === activeTurnPlayerId)?.name ?? "-";
+  }, [activeTurnPlayerId, players]);
 
   useEffect(() => {
     if (!isBidPhase && !isTrumpPhase) return;
@@ -256,6 +386,45 @@ export function GameStartPresetPanel({
               <PlayingCardView key={`${play.playerId}-${play.card.id}`} card={play.card} size="compact" />
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {roundState ? (
+        <div className="pointer-events-none absolute left-1 top-1 z-30 w-[min(13rem,56vw)] rounded-xl border border-red-900/90 bg-black/60 p-2 text-[10px] text-red-200 sm:left-4 sm:top-4 sm:w-56 sm:p-3 sm:text-xs">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold uppercase tracking-[0.12em] text-red-400">Round Track</span>
+            <span className="rounded-full border border-red-900/90 px-2 py-0.5 text-[10px] sm:text-xs">
+              {completedTricks}/13
+            </span>
+          </div>
+
+          <div className="mt-2 grid grid-cols-2 gap-1.5">
+            <div className="rounded-lg bg-red-950/35 px-2 py-1">{SIDE_A_LABEL}: {scoring.teamAPoints}</div>
+            <div className="rounded-lg bg-red-950/35 px-2 py-1">{SIDE_B_LABEL}: {scoring.teamBPoints}</div>
+          </div>
+
+          <div className="mt-2 grid grid-cols-2 gap-1.5">
+            <div className="rounded-lg bg-black/55 px-2 py-1">Match {SIDE_A_LABEL}: {matchScore.teamA}</div>
+            <div className="rounded-lg bg-black/55 px-2 py-1">Match {SIDE_B_LABEL}: {matchScore.teamB}</div>
+          </div>
+
+          <p className="mt-2 text-[10px] uppercase tracking-[0.1em] text-red-400 sm:text-xs">
+            Senior: <span className="text-red-200">{activeSeniorName}</span>
+          </p>
+
+          <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-red-500/90 sm:text-xs">
+            Round {roundNumber} | Target {MATCH_TARGET_POINTS}
+          </p>
+
+          {lastRoundSummary ? (
+            <p className="mt-1 text-[10px] text-red-300/95 sm:text-xs">{lastRoundSummary}</p>
+          ) : null}
+
+          {matchWinner ? (
+            <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-red-200 sm:text-xs">
+              {matchWinner === "A" ? SIDE_A_LABEL : SIDE_B_LABEL} won the match.
+            </p>
+          ) : null}
         </div>
       ) : null}
 

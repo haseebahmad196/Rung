@@ -45,6 +45,17 @@ const funnySpots = [
   "🪵 Log",
 ];
 
+function teamMetaForSeat(seatId: number) {
+  const isGreenTeam = seatId % 2 === 1;
+  return {
+    borderClass: isGreenTeam ? "border-emerald-600/95" : "border-red-600/95",
+    hoverBorderClass: isGreenTeam ? "hover:border-emerald-500" : "hover:border-red-500",
+    seatClass: isGreenTeam
+      ? "shadow-[0_14px_32px_rgba(0,0,0,0.42)]"
+      : "shadow-[0_14px_32px_rgba(0,0,0,0.42)]",
+  };
+}
+
 export function SeatRing({
   title,
   selectedSeat,
@@ -73,6 +84,7 @@ export function SeatRing({
       </div>
 
       {seatLayout.map((seat) => {
+        const teamMeta = teamMetaForSeat(seat.id);
         const selectedByCurrent = selectedSeat === seat.id;
         const isTurnSeat = activeSeat === seat.id;
         const occupiedBy = selectedByCurrent ? playerName : takenSeats[seat.id] ?? null;
@@ -86,13 +98,13 @@ export function SeatRing({
             type="button"
             onClick={() => onSeatSelect(seat.id)}
             disabled={isTakenByOthers}
-            className={`absolute ${seat.position} flex h-24 w-24 flex-col items-center justify-center rounded-full border p-2 text-center transition sm:h-36 sm:w-36 ${
+            className={`absolute ${seat.position} flex h-20 w-20 flex-col items-center justify-center rounded-full border p-2 text-center transition sm:h-36 sm:w-36 ${
               selectedByCurrent
-                ? "border-red-500/95 bg-[radial-gradient(circle_at_35%_30%,rgba(190,20,44,0.85),rgba(30,6,10,0.95))] shadow-[0_16px_40px_rgba(100,8,24,0.55)]"
+                ? "bg-[radial-gradient(circle_at_35%_30%,rgba(190,20,44,0.85),rgba(30,6,10,0.95))] shadow-[0_16px_40px_rgba(100,8,24,0.55)]"
                 : isTakenByOthers
                 ? "cursor-not-allowed border-red-950/95 bg-[radial-gradient(circle_at_35%_30%,rgba(45,8,14,0.95),rgba(12,8,10,0.98))] opacity-90"
-                : "border-red-800/85 bg-[radial-gradient(circle_at_35%_30%,rgba(88,10,22,0.78),rgba(14,8,10,0.95))] shadow-[0_14px_32px_rgba(0,0,0,0.42)] hover:border-red-600/95 hover:shadow-[0_16px_36px_rgba(90,8,22,0.48)]"
-            } ${isTurnSeat ? "turn-seat-beat border-red-400/95 shadow-[0_0_0_2px_rgba(248,113,113,0.42),0_20px_44px_rgba(120,10,26,0.58)]" : ""}`}
+                : `bg-[radial-gradient(circle_at_35%_30%,rgba(88,10,22,0.78),rgba(14,8,10,0.95))] ${teamMeta.seatClass} ${teamMeta.hoverBorderClass} hover:shadow-[0_16px_36px_rgba(90,8,22,0.48)]`
+            } ${teamMeta.borderClass} ${isTurnSeat ? "turn-seat-beat shadow-[0_0_0_2px_rgba(248,113,113,0.42),0_20px_44px_rgba(120,10,26,0.58)]" : ""}`}
             style={
               !isTurnSeat && isOpenSeat
                 ? {
@@ -105,7 +117,7 @@ export function SeatRing({
             <div className="mb-1 grid h-7 w-7 place-items-center rounded-full border border-red-700/75 bg-black/70 text-[11px] font-black text-red-300 shadow-[inset_0_0_8px_rgba(0,0,0,0.5)] sm:h-9 sm:w-9 sm:text-sm">
               {avatarChar}
             </div>
-            <p className="text-[9px] uppercase tracking-[0.12em] text-red-500/90 sm:text-[10px]">
+            <p className="hidden text-[9px] uppercase tracking-[0.12em] text-red-500/90 sm:block sm:text-[10px]">
               {seatNames[seat.id]}
             </p>
             <p className="mt-1 text-[11px] font-bold text-red-200 sm:text-xs">
