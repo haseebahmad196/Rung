@@ -22,6 +22,7 @@ export default function Home() {
   const [isMuted, setIsMuted] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [tableTrumpCard, setTableTrumpCard] = useState<GameCard | null>(null);
+  const [activeTurnSeat, setActiveTurnSeat] = useState<number | null>(null);
 
   const tableId = searchParams.get("table") ?? searchParams.get("t");
   const selectedTable = useMemo(() => getTableByLink(tableId), [tableId]);
@@ -41,6 +42,7 @@ export default function Home() {
     if (selectedTableTakenSeats[seatId]) return;
     setSelectedSeat(seatId);
     setTableTrumpCard(null);
+    setActiveTurnSeat(null);
   };
 
   const goHome = () => {
@@ -48,6 +50,7 @@ export default function Home() {
     setSelectedSeat(null);
     setShowRules(false);
     setTableTrumpCard(null);
+    setActiveTurnSeat(null);
   };
 
   const trumpSymbol =
@@ -84,14 +87,14 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgb(91_14_23),rgb(12_6_8)_40%,rgb(0_0_0)_100%)]">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 hidden overflow-hidden sm:block">
         <div className="absolute -top-10 left-4 text-7xl text-red-400/10">♠</div>
         <div className="absolute top-20 right-6 text-6xl text-red-300/10">♥</div>
         <div className="absolute bottom-16 left-8 text-6xl text-red-500/10">♦</div>
         <div className="absolute bottom-8 right-5 text-7xl text-red-400/10">♣</div>
       </div>
 
-      <Container className="relative max-w-7xl px-3 py-4 sm:px-4 sm:py-8">
+      <Container className="relative max-w-7xl px-3 pb-4 pt-14 sm:px-4 sm:py-8">
         <TableNavbar
           isMuted={isMuted}
           showMenu={showMenu}
@@ -116,8 +119,8 @@ export default function Home() {
             onEnterLobby={enterLobby}
           />
         ) : (
-          <div className="space-y-4">
-            <Card className="relative border-transparent bg-[linear-gradient(135deg,rgba(40,6,10,0.55),rgba(0,0,0,0.6))] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur-md sm:p-7">
+          <div className="space-y-3 sm:space-y-4">
+            <Card className="relative min-h-[66vh] border-transparent bg-[linear-gradient(135deg,rgba(40,6,10,0.55),rgba(0,0,0,0.6))] p-2.5 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur-md sm:min-h-0 sm:p-6">
               <RulesPanel
                 showRules={showRules}
                 onToggleRules={() => setShowRules((prev) => !prev)}
@@ -126,6 +129,7 @@ export default function Home() {
               <SeatRing
                 title={selectedTable.title}
                 selectedSeat={selectedSeat}
+                activeSeat={activeTurnSeat}
                 playerName={playerName}
                 takenSeats={selectedTableTakenSeats}
                 onSeatSelect={seatPlayer}
@@ -144,22 +148,15 @@ export default function Home() {
                 </div>
               ) : null}
 
-              {tableTrumpCard ? (
-                <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-red-500/85 bg-[linear-gradient(145deg,rgba(130,16,28,0.9),rgba(18,8,10,0.95))] px-3 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-red-100 shadow-[0_10px_24px_rgba(0,0,0,0.45)] sm:top-4 sm:px-4 sm:py-1.5 sm:text-xs sm:tracking-[0.14em]">
-                  Rung Courtpiece
-                </div>
-              ) : null}
-
-              {selectedSeat && !tableTrumpCard ? (
-                <div className="absolute inset-0 z-30 grid place-items-center p-2 sm:p-3">
-                  <div className="max-h-[82%] w-full overflow-auto px-1 sm:max-h-[88%] sm:w-[min(96%,48rem)]">
-                    <GameStartPresetPanel
-                      localPlayerName={playerName}
-                      localSeatNumber={selectedSeat}
-                      takenSeats={selectedTableTakenSeats}
-                      onTrumpSelected={setTableTrumpCard}
-                    />
-                  </div>
+              {selectedSeat ? (
+                <div className="absolute inset-0 z-30 px-1 py-1 sm:px-2 sm:py-2">
+                  <GameStartPresetPanel
+                    localPlayerName={playerName}
+                    localSeatNumber={selectedSeat}
+                    takenSeats={selectedTableTakenSeats}
+                    onTrumpSelected={setTableTrumpCard}
+                    onActiveSeatChange={setActiveTurnSeat}
+                  />
                 </div>
               ) : null}
             </Card>

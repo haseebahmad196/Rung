@@ -6,18 +6,23 @@ import {
   applyBidDecision,
   canCurrentPlayerPass,
   createBiddingState,
+  createRoundState,
+  defaultGameRules,
+  dealRemainingToFullHands,
   dealOpeningHands,
   getAllowedBidValues,
   getCurrentPlayer,
+  playCardInRound,
   type BidValue,
   type BiddingState,
   type Card as GameCard,
   type PlayerState,
+  type RoundState,
   type Suit,
 } from "@/features/game";
 import { buildPresetPlayers } from "@/features/game/helpers/players";
 import { PlayingCardView } from "./PlayingCardView";
-import { TurnProfileStrip } from "./TurnProfileStrip";
+import { TableHandsBoard } from "./TableHandsBoard";
 
 type GameStartPresetPanelProps = {
   localPlayerName: string;
@@ -25,6 +30,7 @@ type GameStartPresetPanelProps = {
   takenSeats: Record<number, string>;
   onTrumpSelected?: (card: GameCard) => void;
   onHighestBidChange?: (bid: BidValue | null) => void;
+  onActiveSeatChange?: (seatNumber: number | null) => void;
 };
 
 export function GameStartPresetPanel({
@@ -33,6 +39,7 @@ export function GameStartPresetPanel({
   takenSeats,
   onTrumpSelected,
   onHighestBidChange,
+  onActiveSeatChange,
 }: GameStartPresetPanelProps) {
   const players = useMemo(
     () =>
@@ -51,6 +58,8 @@ export function GameStartPresetPanel({
     createBiddingState(players)
   );
   const [openingHands, setOpeningHands] = useState<PlayerState[] | null>(null);
+  const [fullHands, setFullHands] = useState<PlayerState[] | null>(null);
+  const [roundState, setRoundState] = useState<RoundState | null>(null);
 
   const occupiedSeatSet = useMemo(() => {
     const seatSet = new Set(Object.keys(takenSeats).map((value) => Number(value)));
@@ -63,6 +72,8 @@ export function GameStartPresetPanel({
   useEffect(() => {
     setBiddingState(createBiddingState(players));
     setOpeningHands(null);
+    setFullHands(null);
+    setRoundState(null);
     setConfirmedTrump(null);
     setTurnSecondsLeft(8);
     onHighestBidChange?.(null);
@@ -82,18 +93,20 @@ export function GameStartPresetPanel({
   const currentPlayer = getCurrentPlayer(biddingState);
   const allowedBids = getAllowedBidValues(biddingState);
   const canPass = canCurrentPlayerPass(biddingState);
-  const currentTurnHandPlayer = currentPlayer
-    ? openingHands?.find((player) => player.id === currentPlayer.id) ?? null
-    : null;
-  const localPlayer = openingHands?.find((player) => player.seat === (localSeatNumber - 1)) ?? null;
-  
+  const activeHands = fullHands ?? openingHands;
+
   const winner = biddingState.winnerPlayerId
     ? players.find((player) => player.id === biddingState.winnerPlayerId)
     : null;
-  const winnerHandPlayer = winner
-    ? openingHands?.find((player) => player.id === winner.id) ?? null
-    : null;
-  const cardsToDisplay = biddingState.isComplete ? winnerHandPlayer : currentTurnHandPlayer;
+
+  const centerPlays = useMemo(() => {
+    if (!roundState) return [] as Array<{ playerId: string; seat: number; card: GameCard }>;
+    return roundState.currentTrick.plays.map((play) => ({
+      playerId: play.playerId,
+      seat: players.find((player) => player.id === play.playerId)?.seat ?? 0,
+      card: play.card,
+    }));
+  }, [roundState, players]);
 
   const handlePass = () => {
     if (!currentPlayer) return;
@@ -116,37 +129,69 @@ export function GameStartPresetPanel({
     setTurnSecondsLeft(8);
   };
 
-  const handleTrumpCardClick = (card: GameCard) => {
-    if (!biddingState.isComplete || confirmedTrump) return;
-    if (!winnerHandPlayer) return;
+  const handleTableCardClick = (playerId: string, card: GameCard) => {
+    if (!winner) return;
 
-    const existsInWinnerHand = winnerHandPlayer.hand.some((winnerCard) => winnerCard.id === card.id);
-    if (!existsInWinnerHand) return;
+    if (isTrumpPhase) {
+      if (winner.id !== playerId) return;
+      if (!openingHands) return;
 
-    setSelectedTrumpCardId(card.id);
-    setConfirmedTrump(card.suit);
-    onTrumpSelected?.(card);
-  };
+      const winnerOpeningHand = openingHands?.find((player) => player.id === winner.id)?.hand ?? [];
+      const existsInWinnerOpeningHand = winnerOpeningHand.some((winnerCard) => winnerCard.id === card.id);
+      if (!existsInWinnerOpeningHand) return;
 
-  const confirmTrump = () => {
-    if (!biddingState.isComplete) return;
-    if (!winner || !openingHands || !localPlayer) return;
+      const dealt = dealRemainingToFullHands(openingHands);
+      const nextRound = createRoundState({
+        roundId: 1,
+        dealerPlayerId: winner.id,
+        firstTurnPlayerId: winner.id,
+        players: dealt,
+        trumpSuit: card.suit,
+      });
+      setSelectedTrumpCardId(card.id);
+      setConfirmedTrump(card.suit);
+      setRoundState(nextRound);
+      setFullHands(nextRound.players);
+      onTrumpSelected?.(card);
+      return;
+    }
 
-    // Get the winner's hand - if local player is winner, use their hand directly
-    const isLocalPlayerWinner = winner.seat === (localSeatNumber - 1);
-    const handToCheck = isLocalPlayerWinner 
-      ? localPlayer.hand
-      : openingHands.find((player) => player.id === winner.id)?.hand ?? [];
-    
-    const pickedCard = handToCheck.find((card) => card.id === selectedTrumpCardId);
-    if (!pickedCard) return;
+    if (!confirmedTrump || !roundState || roundState.isComplete) return;
 
-    setConfirmedTrump(pickedCard.suit);
-    onTrumpSelected?.(pickedCard);
+    try {
+      const nextRound = playCardInRound(roundState, playerId, card.id, defaultGameRules);
+      setRoundState(nextRound);
+      setFullHands(nextRound.players);
+    } catch {
+      return;
+    }
   };
 
   const isBidPhase = isSeatsFull && Boolean(openingHands) && !biddingState.isComplete;
   const isTrumpPhase = isSeatsFull && biddingState.isComplete && !confirmedTrump;
+  const isRoundPhase = Boolean(confirmedTrump && roundState && !roundState.isComplete);
+  const activeTurnPlayerId = isRoundPhase
+    ? roundState?.currentTurnPlayerId ?? null
+    : isTrumpPhase
+    ? winner?.id ?? null
+    : isBidPhase
+    ? currentPlayer?.id ?? null
+    : null;
+
+  useEffect(() => {
+    if (!isSeatsFull) {
+      onActiveSeatChange?.(null);
+      return;
+    }
+
+    if (!activeTurnPlayerId) {
+      onActiveSeatChange?.(null);
+      return;
+    }
+
+    const activePlayer = players.find((player) => player.id === activeTurnPlayerId);
+    onActiveSeatChange?.(activePlayer ? activePlayer.seat + 1 : null);
+  }, [isSeatsFull, activeTurnPlayerId, players, onActiveSeatChange]);
 
   useEffect(() => {
     if (!isBidPhase && !isTrumpPhase) return;
@@ -184,65 +229,41 @@ export function GameStartPresetPanel({
   }, [turnSecondsLeft, isBidPhase, isTrumpPhase, canPass, allowedBids]);
 
   return (
-    <div className="pointer-events-auto w-full max-w-2xl rounded-2xl border border-red-900/85 bg-[linear-gradient(145deg,rgba(18,6,9,0.88),rgba(8,8,10,0.78))] p-3 shadow-[0_24px_55px_rgba(0,0,0,0.52)] backdrop-blur-md sm:p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-xs font-black uppercase tracking-[0.12em] text-red-400">On Table</div>
-        <div className="rounded-full border border-red-800/90 bg-black/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-red-300/95">
-          Turn order: Top → Right → Bottom → Left
-        </div>
-      </div>
-
+    <div className="pointer-events-none relative h-full min-h-[22rem] w-full sm:min-h-[28rem]">
       {!isSeatsFull ? (
-        <div className="mt-4 rounded-2xl border border-red-900/90 bg-black/70 p-4 text-sm text-red-300/90">
+        <div className="pointer-events-auto absolute left-1/2 top-10 w-[min(92%,28rem)] -translate-x-1/2 rounded-2xl border border-red-900/90 bg-black/70 p-4 text-sm text-red-300/90">
           Waiting for all seats to fill before dealing cards.
         </div>
       ) : null}
 
-      {isSeatsFull && cardsToDisplay ? (
-        <div className="mt-4 rounded-2xl border border-red-900/90 bg-black/75 p-3">
-          <p className="mb-2 text-xs uppercase tracking-[0.12em] text-red-500/95">
-            {biddingState.isComplete ? `${cardsToDisplay.name} Cards (Winner)` : `${cardsToDisplay.name} Cards`}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {cardsToDisplay.hand.map((card) => {
-              const isRungSelectionPhase = biddingState.isComplete && !confirmedTrump;
-              const canSelectRung = isRungSelectionPhase;
-              const isSelected = selectedTrumpCardId === card.id;
-              
-              if (canSelectRung) {
-                return (
-                  <button
-                    key={card.id}
-                    type="button"
-                    onClick={() => handleTrumpCardClick(card)}
-                    className={`rounded-xl transition ${
-                      isSelected
-                        ? "ring-2 ring-red-500 ring-offset-2 ring-offset-black"
-                        : "hover:ring-2 hover:ring-red-700"
-                    }`}
-                  >
-                    <PlayingCardView card={card} />
-                  </button>
-                );
-              }
-              
-              return <PlayingCardView key={card.id} card={card} />;
-            })}
+      {isSeatsFull && activeHands ? (
+        <TableHandsBoard
+          players={players}
+          openingHands={activeHands}
+          localSeatNumber={localSeatNumber}
+          revealAllCards={Boolean(confirmedTrump)}
+          clickablePlayerId={isTrumpPhase ? winner?.id ?? null : isRoundPhase ? roundState?.currentTurnPlayerId ?? null : null}
+          selectedCardId={selectedTrumpCardId}
+          onCardClick={handleTableCardClick}
+          className="pointer-events-auto absolute inset-0 z-10"
+        />
+      ) : null}
+
+      {centerPlays.length > 0 ? (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-40 -translate-x-1/2 -translate-y-1/2">
+          <div className="flex items-center gap-1 rounded-xl bg-black/45 p-1.5">
+            {centerPlays.map((play) => (
+              <PlayingCardView key={`${play.playerId}-${play.card.id}`} card={play.card} size="compact" />
+            ))}
           </div>
         </div>
       ) : null}
 
       {isSeatsFull && openingHands && !biddingState.isComplete ? (
-        <div className="mt-4 space-y-4 rounded-2xl border border-red-900/90 bg-black/70 p-4">
-              <TurnProfileStrip
-                players={players}
-                activePlayerId={currentPlayer?.id ?? null}
-                secondsLeft={turnSecondsLeft}
-              />
-
+        <div className="pointer-events-auto absolute inset-x-1 bottom-1 z-30 space-y-2 rounded-xl bg-black/55 p-2 sm:inset-x-4 sm:bottom-4">
           <div>
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-red-400/95 sm:text-xs">
-              Step 1 · Pick Bid or Decline
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-red-300 sm:text-xs">
+              First bid
             </p>
             <div className="flex flex-wrap gap-2">
               {[7, 9, 11, 13].map((bidValue) => {
@@ -251,7 +272,7 @@ export function GameStartPresetPanel({
                   <Button
                     key={bidValue}
                     variant="primary"
-                    className="min-w-12 bg-red-700 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-zinc-900 disabled:text-zinc-500"
+                    className="min-w-10 bg-red-700 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-zinc-900 disabled:text-zinc-500"
                     disabled={!isAllowed}
                     onClick={() => handleBid(bidValue as BidValue)}
                   >
@@ -262,7 +283,7 @@ export function GameStartPresetPanel({
 
               <Button
                 variant="secondary"
-                className="border-red-900/95 bg-black/80 text-red-300 hover:bg-red-950/40"
+                className="border-red-900/95 bg-black/70 text-red-300 hover:bg-red-950/40"
                 disabled={!canPass}
                 onClick={handlePass}
               >
@@ -275,27 +296,16 @@ export function GameStartPresetPanel({
       ) : null}
 
       {isSeatsFull && biddingState.isComplete && !confirmedTrump ? (
-        <div className="mt-4 space-y-3">
-          <div className="rounded-2xl border border-red-800/90 bg-red-950/40 px-4 py-3 text-sm text-red-100">
-            Highest bidder: <span className="font-bold">{winner?.name ?? "Winner"}</span>
-          </div>
+        <div className="pointer-events-auto absolute inset-x-1 bottom-1 z-30 rounded-xl bg-black/55 p-2 sm:inset-x-4 sm:bottom-4">
+          <p className="text-xs uppercase tracking-[0.12em] text-red-300">
+            Select rung (winner)
+          </p>
+        </div>
+      ) : null}
 
-          <div className="rounded-2xl border border-red-900/90 bg-black/70 p-4">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-red-400/95 sm:text-xs">
-              Select Rung Color
-            </p>
-            <TurnProfileStrip
-              players={players}
-              activePlayerId={winner?.id ?? null}
-              secondsLeft={turnSecondsLeft}
-            />
-            
-            <div className="mt-3">
-              <p className="mb-2 text-xs text-red-300/80">
-                Tap winner card above to set rung suit
-              </p>
-            </div>
-          </div>
+      {confirmedTrump ? (
+        <div className="pointer-events-none absolute inset-x-1 bottom-1 z-30 rounded-xl bg-black/45 p-2 text-center text-[11px] uppercase tracking-[0.12em] text-red-300 sm:inset-x-4 sm:bottom-4">
+          Play starts: highest bidder throws first
         </div>
       ) : null}
     </div>

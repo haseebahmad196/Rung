@@ -16,4 +16,5 @@ export const quickTaunts = [
   "Thoka ha",
   "Wich karo",
   "Shaba",
+  "Good one",
 ];

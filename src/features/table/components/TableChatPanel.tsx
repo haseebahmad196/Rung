@@ -26,6 +26,7 @@ export function TableChatPanel({
   const [messageInput, setMessageInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(seedMessages);
   const [showQuickChat, setShowQuickChat] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   const channelName = useMemo(() => `courtpiece-${tableId}-chat`, [tableId]);
   const canSend = messageInput.trim().length > 0 && Boolean(selectedSeat);
@@ -112,7 +113,16 @@ export function TableChatPanel({
   return (
     <div className="rounded-2xl border border-red-900/90 bg-[linear-gradient(135deg,rgba(28,4,9,0.95),rgba(8,8,10,0.98))] p-4 shadow-[0_20px_45px_rgba(0,0,0,0.5)] sm:p-5">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="text-base font-bold sm:text-lg">Chat</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-base font-bold sm:text-lg">Chat</h3>
+          <button
+            type="button"
+            onClick={() => setIsChatOpen((prev) => !prev)}
+            className="rounded-full border border-red-700/95 bg-black/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-red-400 sm:hidden"
+          >
+            {isChatOpen ? "Hide" : "Show"}
+          </button>
+        </div>
         <div className="relative flex items-center gap-2">
           <span className="rounded-full border border-red-900/95 bg-black/85 px-2.5 py-1 text-xs text-red-400/95">
             {selectedSeat ? `Seat ${selectedSeat}` : "Select seat first"}
@@ -164,37 +174,39 @@ export function TableChatPanel({
         </div>
       </div>
 
-      <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-red-500/20 bg-black/70 p-3">
-        {messages.length === 0 ? (
-          <p className="text-sm text-red-100/60">No messages yet.</p>
-        ) : (
-          messages.map((message) => (
-            <div key={message.id} className="rounded-lg bg-red-950/35 px-3 py-2">
-              <p className="text-xs text-red-300/80">{message.from}</p>
-              <p className="text-sm text-red-100">{message.text}</p>
-            </div>
-          ))
-        )}
-      </div>
+      <div className={`${isChatOpen ? "block" : "hidden"} sm:block`}>
+        <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-red-500/20 bg-black/70 p-3">
+          {messages.length === 0 ? (
+            <p className="text-sm text-red-100/60">No messages yet.</p>
+          ) : (
+            messages.map((message) => (
+              <div key={message.id} className="rounded-lg bg-red-950/35 px-3 py-2">
+                <p className="text-xs text-red-300/80">{message.from}</p>
+                <p className="text-sm text-red-100">{message.text}</p>
+              </div>
+            ))
+          )}
+        </div>
 
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-        <Input
-          value={messageInput}
-          onChange={(event) => setMessageInput(event.target.value)}
-          placeholder={
-            selectedSeat ? `Message players in ${tableId}...` : "Choose a seat to chat"
-          }
-          disabled={!selectedSeat}
-          className="border-red-500/30 bg-black/70"
-        />
-        <Button
-          variant="primary"
-          onClick={sendMessage}
-          disabled={!canSend}
-          className="bg-red-500 px-5 text-white hover:bg-red-400"
-        >
-          Send
-        </Button>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <Input
+            value={messageInput}
+            onChange={(event) => setMessageInput(event.target.value)}
+            placeholder={
+              selectedSeat ? `Message players in ${tableId}...` : "Choose a seat to chat"
+            }
+            disabled={!selectedSeat}
+            className="border-red-500/30 bg-black/70"
+          />
+          <Button
+            variant="primary"
+            onClick={sendMessage}
+            disabled={!canSend}
+            className="bg-red-500 px-5 text-white hover:bg-red-400"
+          >
+            Send
+          </Button>
+        </div>
       </div>
     </div>
   );

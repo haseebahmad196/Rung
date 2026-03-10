@@ -20,11 +20,8 @@ export function TableNavbar({
   onCloseMenu,
 }: TableNavbarProps) {
   return (
-    <nav className="mb-4 flex items-center justify-between rounded-2xl border border-red-950/80 bg-[linear-gradient(135deg,rgba(42,4,8,0.9),rgba(6,6,8,0.95))] px-3 py-2 shadow-[0_10px_30px_rgba(0,0,0,0.45)] sm:mb-6 sm:px-4 sm:py-3">
-      <div className="text-sm font-extrabold uppercase tracking-[0.2em] text-red-500/95">
-        Court Piece
-      </div>
-      <div className="relative">
+    <nav className="pointer-events-none fixed right-3 top-3 z-50 sm:right-5 sm:top-5">
+      <div className="pointer-events-auto relative">
         <button
           type="button"
           onClick={onToggleMenu}
@@ -35,7 +32,7 @@ export function TableNavbar({
         </button>
 
         {showMenu ? (
-          <div className="absolute right-0 top-11 z-20 w-64 rounded-2xl border border-red-900/95 bg-[linear-gradient(135deg,rgba(28,5,9,0.96),rgba(8,8,10,0.98))] p-2 shadow-[0_20px_45px_rgba(0,0,0,0.55)]">
+          <div className="absolute right-0 top-11 z-20 w-64 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-red-900/95 bg-[linear-gradient(135deg,rgba(28,5,9,0.96),rgba(8,8,10,0.98))] p-2 shadow-[0_20px_45px_rgba(0,0,0,0.55)] sm:max-w-[26rem]">
             <button
               type="button"
               onClick={() => {

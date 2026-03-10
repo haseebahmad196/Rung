@@ -3,6 +3,7 @@ import { useMemo } from "react";
 type SeatRingProps = {
   title: string;
   selectedSeat: number | null;
+  activeSeat?: number | null;
   playerName: string;
   takenSeats: Record<number, string>;
   onSeatSelect: (seatId: number) => void;
@@ -47,6 +48,7 @@ const funnySpots = [
 export function SeatRing({
   title,
   selectedSeat,
+  activeSeat = null,
   playerName,
   takenSeats,
   onSeatSelect,
@@ -72,6 +74,7 @@ export function SeatRing({
 
       {seatLayout.map((seat) => {
         const selectedByCurrent = selectedSeat === seat.id;
+        const isTurnSeat = activeSeat === seat.id;
         const occupiedBy = selectedByCurrent ? playerName : takenSeats[seat.id] ?? null;
         const isTakenByOthers = Boolean(occupiedBy) && !selectedByCurrent;
         const isOpenSeat = !occupiedBy;
@@ -89,9 +92,9 @@ export function SeatRing({
                 : isTakenByOthers
                 ? "cursor-not-allowed border-red-950/95 bg-[radial-gradient(circle_at_35%_30%,rgba(45,8,14,0.95),rgba(12,8,10,0.98))] opacity-90"
                 : "border-red-800/85 bg-[radial-gradient(circle_at_35%_30%,rgba(88,10,22,0.78),rgba(14,8,10,0.95))] shadow-[0_14px_32px_rgba(0,0,0,0.42)] hover:border-red-600/95 hover:shadow-[0_16px_36px_rgba(90,8,22,0.48)]"
-            }`}
+            } ${isTurnSeat ? "turn-seat-beat border-red-400/95 shadow-[0_0_0_2px_rgba(248,113,113,0.42),0_20px_44px_rgba(120,10,26,0.58)]" : ""}`}
             style={
-              isOpenSeat
+              !isTurnSeat && isOpenSeat
                 ? {
                     animation: `seat-bob ${2.1 + seat.id * 0.15}s ease-in-out infinite`,
                     animationDelay: `${seat.id * 0.25}s`,
