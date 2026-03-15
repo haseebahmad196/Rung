@@ -64,13 +64,15 @@ export function SeatRing({
   takenSeats,
   onSeatSelect,
 }: SeatRingProps) {
-  const seatNames = useMemo(() => {
-    const pool = [...funnySpots].sort(() => Math.random() - 0.5);
-    return seatLayout.reduce<Record<number, string>>((acc, seat, index) => {
-      acc[seat.id] = pool[index] ?? `Spot ${seat.id}`;
-      return acc;
-    }, {});
-  }, []);
+  const seatNames = useMemo(
+    () =>
+      seatLayout.reduce<Record<number, string>>((acc, seat) => {
+        // Deterministic pick keeps render pure and avoids random reshuffling.
+        acc[seat.id] = funnySpots[(seat.id * 3) % funnySpots.length] ?? `Spot ${seat.id}`;
+        return acc;
+      }, {}),
+    []
+  );
 
   return (
     <div className="relative mx-auto aspect-square w-full max-w-[23rem] rounded-[999px] border border-red-900/95 bg-[radial-gradient(circle_at_50%_42%,rgba(160,18,38,0.52),rgba(70,6,18,0.78)_43%,rgba(6,4,8,0.98)_100%)] shadow-[inset_0_0_140px_rgba(0,0,0,0.78),0_42px_90px_rgba(28,2,8,0.85)] backdrop-blur-md sm:aspect-[21/10] sm:max-w-[84rem]">

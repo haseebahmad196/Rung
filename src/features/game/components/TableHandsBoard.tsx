@@ -1,4 +1,4 @@
-import type { Card as GameCard, PlayerState } from "@/features/game";
+import { ranksLowToHigh, type Card as GameCard, type PlayerState } from "@/features/game";
 import { PlayingCardView } from "./PlayingCardView";
 
 type PublicPlayer = {
@@ -20,61 +20,48 @@ type TableHandsBoardProps = {
 };
 
 const seatOrder = [0, 1, 2, 3] as const;
-const suitOrder: Record<GameCard["suit"], number> = {
-  spades: 0,
-  hearts: 1,
-  diamonds: 2,
-  clubs: 3,
-};
-const rankOrderHighToLow: Record<GameCard["rank"], number> = {
-  A: 12,
-  K: 11,
-  Q: 10,
-  J: 9,
-  "10": 8,
-  "9": 7,
-  "8": 6,
-  "7": 5,
-  "6": 4,
-  "5": 3,
-  "4": 2,
-  "3": 1,
-  "2": 0,
-};
+const suitDisplayOrder: GameCard["suit"][] = ["spades", "hearts", "diamonds", "clubs"];
+const rankDisplayOrder = [...ranksLowToHigh].reverse();
+
+function sortHandForDisplay(hand: GameCard[]): GameCard[] {
+  return [...hand].sort((left, right) => {
+    const leftSuit = suitDisplayOrder.indexOf(left.suit);
+    const rightSuit = suitDisplayOrder.indexOf(right.suit);
+    if (leftSuit !== rightSuit) {
+      return leftSuit - rightSuit;
+    }
+
+    const leftRank = rankDisplayOrder.indexOf(left.rank);
+    const rightRank = rankDisplayOrder.indexOf(right.rank);
+    return leftRank - rightRank;
+  });
+}
 
 function seatPositionClass(seat: number) {
-  if (seat === 0) return "absolute left-1/2 top-[6%] -translate-x-1/2 sm:top-[4%]";
-  if (seat === 1) return "absolute right-[2%] top-1/2 -translate-y-1/2 sm:right-[0.8%]";
-  if (seat === 2) return "absolute bottom-[6%] left-1/2 -translate-x-1/2 sm:bottom-[4%]";
-  return "absolute left-[2%] top-1/2 -translate-y-1/2 sm:left-[0.8%]";
+  if (seat === 0) return "absolute left-1/2 top-[7%] -translate-x-1/2";
+  if (seat === 1) return "absolute right-[1%] top-1/2 -translate-y-1/2";
+  if (seat === 2) return "absolute bottom-[7%] left-1/2 -translate-x-1/2";
+  return "absolute left-[1%] top-1/2 -translate-y-1/2";
 }
 
 function seatBlockClass(seat: number) {
-  if (seat === 0) return "flex flex-col items-center scale-[0.7] sm:scale-[0.95] lg:scale-100";
-  if (seat === 1) return "flex flex-col items-end scale-[0.5] sm:scale-[0.78] lg:scale-[0.92]";
-  if (seat === 2) return "flex flex-col items-center scale-[0.9] sm:scale-100";
-  return "flex flex-col items-start scale-[0.5] sm:scale-[0.78] lg:scale-[0.92]";
+  if (seat === 0) return "flex flex-col items-center scale-[0.72] sm:scale-100";
+  if (seat === 1) return "flex flex-col items-end scale-[0.52] sm:scale-[0.82] lg:scale-100";
+  if (seat === 2) return "flex flex-col items-center scale-[0.94] sm:scale-100";
+  return "flex flex-col items-start scale-[0.52] sm:scale-[0.82] lg:scale-100";
 }
 
 function cardBack(index: number) {
   return (
     <div
       key={`back-${index}`}
-      className="h-[58px] w-[40px] rounded-md border border-red-800/70 bg-[linear-gradient(135deg,rgba(55,8,14,0.95),rgba(10,8,12,0.98))] sm:h-[80px] sm:w-[56px]"
+      className="h-[44px] w-[30px] rounded-md border border-red-800/70 bg-[linear-gradient(135deg,rgba(55,8,14,0.95),rgba(10,8,12,0.98))] sm:h-[58px] sm:w-[40px]"
     />
   );
 }
 
 function cardsWrapClass() {
-  return "flex -space-x-3 sm:-space-x-5 md:-space-x-4";
-}
-
-function sortHandForDisplay(hand: GameCard[]) {
-  return [...hand].sort((left, right) => {
-    const suitCompare = suitOrder[left.suit] - suitOrder[right.suit];
-    if (suitCompare !== 0) return suitCompare;
-    return rankOrderHighToLow[right.rank] - rankOrderHighToLow[left.rank];
-  });
+  return "flex -space-x-5 sm:-space-x-5 md:-space-x-4";
 }
 
 function toVisualSeat(playerSeat: number, localSeatNumber: number) {
@@ -111,8 +98,7 @@ export function TableHandsBoard({
               const player = playerBySeat[seat];
               if (!player) return null;
 
-              const hand = handByPlayerId[player.id] ?? [];
-              const sortedHand = sortHandForDisplay(hand);
+              const hand = sortHandForDisplay(handByPlayerId[player.id] ?? []);
               const isLocal = player.seat + 1 === localSeatNumber;
               const visualSeat = toVisualSeat(player.seat, localSeatNumber);
               const canClickThisSeat = clickablePlayerId === player.id;
@@ -126,7 +112,7 @@ export function TableHandsBoard({
                   <div className={seatBlockClass(visualSeat)}>
                     <div className={cardsWrapClass()}>
                       {showFaceCards
-                        ? sortedHand.map((card) => {
+                        ? hand.map((card) => {
                             const isSelected = selectedCardId === card.id;
 
                             if (canClickThisSeat) {

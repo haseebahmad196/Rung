@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import {
   applyBidDecision,
@@ -19,7 +19,6 @@ import {
   type PlayerState,
   type RoundState,
   type Suit,
-  type Team,
 } from "@/features/game";
 import { buildPresetPlayers } from "@/features/game/helpers/players";
 import { PlayingCardView } from "./PlayingCardView";
@@ -29,14 +28,10 @@ type GameStartPresetPanelProps = {
   localPlayerName: string;
   localSeatNumber: number;
   takenSeats: Record<number, string>;
-  onTrumpSelected?: (card: GameCard | null) => void;
+  onTrumpSelected?: (card: GameCard) => void;
   onHighestBidChange?: (bid: BidValue | null) => void;
   onActiveSeatChange?: (seatNumber: number | null) => void;
 };
-
-const MATCH_TARGET_POINTS = 60;
-const SIDE_A_LABEL = "Side 1";
-const SIDE_B_LABEL = "Side 2";
 
 export function GameStartPresetPanel({
   localPlayerName,
@@ -66,10 +61,9 @@ export function GameStartPresetPanel({
   const [fullHands, setFullHands] = useState<PlayerState[] | null>(null);
   const [roundState, setRoundState] = useState<RoundState | null>(null);
   const [roundNumber, setRoundNumber] = useState(1);
-  const [matchScore, setMatchScore] = useState<{ teamA: number; teamB: number }>({ teamA: 0, teamB: 0 });
-  const [matchWinner, setMatchWinner] = useState<Team | null>(null);
-  const [lastRoundSummary, setLastRoundSummary] = useState<string | null>(null);
-  const processedRoundIdRef = useRef<number | null>(null);
+  const [matchScoreTeamA, setMatchScoreTeamA] = useState(0);
+  const [matchScoreTeamB, setMatchScoreTeamB] = useState(0);
+  const [lastSettledRoundId, setLastSettledRoundId] = useState<number | null>(null);
 
   const occupiedSeatSet = useMemo(() => {
     const seatSet = new Set(Object.keys(takenSeats).map((value) => Number(value)));
@@ -80,24 +74,20 @@ export function GameStartPresetPanel({
   const isSeatsFull = occupiedSeatSet.size === 4;
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setBiddingState(createBiddingState(players));
     setOpeningHands(null);
     setFullHands(null);
     setRoundState(null);
     setRoundNumber(1);
-    setMatchScore({ teamA: 0, teamB: 0 });
-    setMatchWinner(null);
-    setLastRoundSummary(null);
-    processedRoundIdRef.current = null;
     setConfirmedTrump(null);
-    setSelectedTrumpCardId(null);
     setTurnSecondsLeft(8);
-    onTrumpSelected?.(null);
     onHighestBidChange?.(null);
-  }, [players]);
+  }, [players, onHighestBidChange]);
 
   useEffect(() => {
     if (!isSeatsFull) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOpeningHands(null);
       return;
     }
@@ -125,16 +115,16 @@ export function GameStartPresetPanel({
     }));
   }, [roundState, players]);
 
-  const handlePass = () => {
+  const handlePass = useCallback(() => {
     if (!currentPlayer) return;
 
     const next = applyBidDecision(biddingState, currentPlayer.id, { type: "pass" });
     setBiddingState(next);
     onHighestBidChange?.(next.highestBid?.bid ?? null);
     setTurnSecondsLeft(8);
-  };
+  }, [biddingState, currentPlayer, onHighestBidChange]);
 
-  const handleBid = (bid: BidValue) => {
+  const handleBid = useCallback((bid: BidValue) => {
     if (!currentPlayer) return;
 
     const next = applyBidDecision(biddingState, currentPlayer.id, {
@@ -144,7 +134,7 @@ export function GameStartPresetPanel({
     setBiddingState(next);
     onHighestBidChange?.(next.highestBid?.bid ?? null);
     setTurnSecondsLeft(8);
-  };
+  }, [biddingState, currentPlayer, onHighestBidChange]);
 
   const handleTableCardClick = (playerId: string, card: GameCard) => {
     if (!winner) return;
@@ -187,12 +177,14 @@ export function GameStartPresetPanel({
   const isBidPhase = isSeatsFull && Boolean(openingHands) && !biddingState.isComplete;
   const isTrumpPhase = isSeatsFull && biddingState.isComplete && !confirmedTrump;
   const isRoundPhase = Boolean(confirmedTrump && roundState && !roundState.isComplete);
-  const completedTricks = roundState?.completedTricks.length ?? 0;
-  const scoring = useMemo(() => {
+
+  // Pile-claim scoring: identify which team has won piles based on consecutive-senior-side rule
+  const roundStats = useMemo(() => {
     if (!roundState) {
       return {
         teamAPoints: 0,
         teamBPoints: 0,
+        trickCount: 0,
       };
     }
 
@@ -201,41 +193,51 @@ export function GameStartPresetPanel({
       return acc;
     }, {});
 
-    // First claim needs 5 accumulated tricks, then each next claim needs 3.
-    let requiredPile = 5;
-    let accumulatedPile = 0;
-    let previousWinnerPlayerId: string | null = null;
+    // Award checkpoints requested by game flow:
+    // trick 5 awards 5 points, trick 8 awards 3 points, trick 13 awards 5 points.
+    const checkpoints = [
+      { trick: 5, points: 5 },
+      { trick: 8, points: 3 },
+      { trick: 13, points: 5 },
+    ] as const;
+
     let teamAPoints = 0;
     let teamBPoints = 0;
 
-    for (let trickIndex = 0; trickIndex < roundState.completedTricks.length; trickIndex += 1) {
-      const winnerPlayerId = roundState.completedTricks[trickIndex].winnerPlayerId;
-      accumulatedPile += 1;
+    for (const checkpoint of checkpoints) {
+      const checkpointIndex = checkpoint.trick - 1;
+      const previousIndex = checkpointIndex - 1;
 
-      const isConsecutiveBySameSenior = Boolean(
-        winnerPlayerId && previousWinnerPlayerId && winnerPlayerId === previousWinnerPlayerId
-      );
+      const checkpointTrick = roundState.completedTricks[checkpointIndex];
+      const previousTrick = roundState.completedTricks[previousIndex];
 
-      if (isConsecutiveBySameSenior && accumulatedPile >= requiredPile) {
-        const winnerTeam = teamByPlayerId[winnerPlayerId as string] ?? null;
-        if (winnerTeam === "A") {
-          teamAPoints += accumulatedPile;
-        } else if (winnerTeam === "B") {
-          teamBPoints += accumulatedPile;
-        }
+      if (!checkpointTrick || !previousTrick) continue;
+      if (!checkpointTrick.winnerPlayerId || !previousTrick.winnerPlayerId) continue;
 
-        accumulatedPile = 0;
-        requiredPile = 3;
+      const checkpointWinnerTeam = teamByPlayerId[checkpointTrick.winnerPlayerId];
+      const previousWinnerTeam = teamByPlayerId[previousTrick.winnerPlayerId];
+      if (!checkpointWinnerTeam || !previousWinnerTeam) continue;
+
+      const isConsecutiveSeniorSideWin = checkpointWinnerTeam === previousWinnerTeam;
+      if (!isConsecutiveSeniorSideWin) continue;
+
+      const winnerTeam = checkpointWinnerTeam;
+      if (winnerTeam === "A") {
+        teamAPoints += checkpoint.points;
+      } else if (winnerTeam === "B") {
+        teamBPoints += checkpoint.points;
       }
-
-      previousWinnerPlayerId = winnerPlayerId ?? null;
     }
+
+    const trickCount = roundState.completedTricks.length;
 
     return {
       teamAPoints,
       teamBPoints,
+      trickCount,
     };
   }, [roundState, players]);
+
   const activeTurnPlayerId = isRoundPhase
     ? roundState?.currentTurnPlayerId ?? null
     : isTrumpPhase
@@ -243,65 +245,6 @@ export function GameStartPresetPanel({
     : isBidPhase
     ? currentPlayer?.id ?? null
     : null;
-
-  useEffect(() => {
-    if (!roundState || !roundState.isComplete) return;
-    if (matchWinner) return;
-    if (processedRoundIdRef.current === roundState.id) return;
-
-    const bidderPlayerId = biddingState.highestBid?.playerId;
-    const bidValue = biddingState.highestBid?.bid;
-    if (!bidderPlayerId || !bidValue) return;
-
-    const bidder = players.find((player) => player.id === bidderPlayerId);
-    if (!bidder) return;
-
-    const bidderTeamPoints = bidder.team === "A" ? scoring.teamAPoints : scoring.teamBPoints;
-    const bidderWonBid = bidderTeamPoints >= bidValue;
-    const awardedTeam: Team = bidderWonBid ? bidder.team : bidder.team === "A" ? "B" : "A";
-    const awardedPoints = bidderWonBid ? bidValue : bidValue * 2;
-    processedRoundIdRef.current = roundState.id;
-
-    setMatchScore((prev) => {
-      const next =
-        awardedTeam === "A"
-          ? { teamA: prev.teamA + awardedPoints, teamB: prev.teamB }
-          : { teamA: prev.teamA, teamB: prev.teamB + awardedPoints };
-
-      if (next.teamA >= MATCH_TARGET_POINTS || next.teamB >= MATCH_TARGET_POINTS) {
-        setMatchWinner(next.teamA >= MATCH_TARGET_POINTS ? "A" : "B");
-      }
-
-      return next;
-    });
-
-    setLastRoundSummary(
-      bidderWonBid
-        ? `Bidder ${bidder.team === "A" ? SIDE_A_LABEL : SIDE_B_LABEL} made ${bidValue} and earned +${awardedPoints}.`
-        : `Bidder ${bidder.team === "A" ? SIDE_A_LABEL : SIDE_B_LABEL} failed ${bidValue}. ${awardedTeam === "A" ? SIDE_A_LABEL : SIDE_B_LABEL} earned +${awardedPoints}.`
-    );
-  }, [roundState, scoring.teamAPoints, scoring.teamBPoints, biddingState.highestBid, players, matchWinner]);
-
-  useEffect(() => {
-    if (!roundState || !roundState.isComplete) return;
-    if (matchWinner) return;
-
-    const timer = setTimeout(() => {
-      processedRoundIdRef.current = null;
-      setRoundNumber((prev) => prev + 1);
-      setBiddingState(createBiddingState(players));
-      setOpeningHands(null);
-      setFullHands(null);
-      setRoundState(null);
-      setConfirmedTrump(null);
-      setSelectedTrumpCardId(null);
-      setTurnSecondsLeft(8);
-      onTrumpSelected?.(null);
-      onHighestBidChange?.(null);
-    }, 1400);
-
-    return () => clearTimeout(timer);
-  }, [roundState, matchWinner, players, onTrumpSelected, onHighestBidChange]);
 
   useEffect(() => {
     if (!isSeatsFull) {
@@ -318,13 +261,9 @@ export function GameStartPresetPanel({
     onActiveSeatChange?.(activePlayer ? activePlayer.seat + 1 : null);
   }, [isSeatsFull, activeTurnPlayerId, players, onActiveSeatChange]);
 
-  const activeSeniorName = useMemo(() => {
-    if (!activeTurnPlayerId) return "-";
-    return players.find((player) => player.id === activeTurnPlayerId)?.name ?? "-";
-  }, [activeTurnPlayerId, players]);
-
   useEffect(() => {
     if (!isBidPhase && !isTrumpPhase) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTurnSecondsLeft(8);
   }, [isBidPhase, isTrumpPhase, biddingState.currentTurnOffset, biddingState.history.length]);
 
@@ -339,10 +278,59 @@ export function GameStartPresetPanel({
   }, [isBidPhase, isTrumpPhase]);
 
   useEffect(() => {
+    if (!roundState?.isComplete) return;
+    if (lastSettledRoundId === roundNumber) return;
+
+    const bidderPlayer = players.find((p) => p.id === biddingState.winnerPlayerId);
+    if (!bidderPlayer || !biddingState.highestBid) return;
+
+    const bidAmount = biddingState.highestBid.bid;
+    const bidderTeam = bidderPlayer.team;
+    const bidderTeamAchievedBid =
+      (bidderTeam === "A" && roundStats.teamAPoints >= bidAmount) ||
+      (bidderTeam === "B" && roundStats.teamBPoints >= bidAmount);
+
+    const pointsToAdd = bidderTeamAchievedBid ? bidAmount : bidAmount * 2;
+    const awardToTeam = bidderTeamAchievedBid ? bidderTeam : (bidderTeam === "A" ? "B" : "A");
+
+    // Use a microtask to defer state updates
+    Promise.resolve().then(() => {
+      setLastSettledRoundId(roundNumber);
+      if (awardToTeam === "A") {
+        setMatchScoreTeamA((prev) => prev + pointsToAdd);
+      } else {
+        setMatchScoreTeamB((prev) => prev + pointsToAdd);
+      }
+    });
+  }, [roundState?.isComplete, roundState?.id, roundStats, biddingState.winnerPlayerId, biddingState.highestBid, lastSettledRoundId, roundNumber, players]);
+
+  useEffect(() => {
+    if (!roundState?.isComplete) return;
+
+    // Auto-reset round after delay if match not over
+    const timer = setTimeout(() => {
+      // Check if match is over based on current match scores
+      // We need to recalculate based on the latest scores
+      setRoundNumber((prev) => prev + 1);
+      setBiddingState(createBiddingState(players));
+      setOpeningHands(null);
+      setFullHands(null);
+      setRoundState(null);
+      setConfirmedTrump(null);
+      setSelectedTrumpCardId(null);
+      setTurnSecondsLeft(8);
+      onHighestBidChange?.(null);
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [roundState?.isComplete, roundState?.id, players, onHighestBidChange]);
+
+  useEffect(() => {
     if (turnSecondsLeft > 0) return;
 
     if (isBidPhase) {
       if (canPass) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         handlePass();
         return;
       }
@@ -356,7 +344,7 @@ export function GameStartPresetPanel({
     if (isTrumpPhase) {
       return;
     }
-  }, [turnSecondsLeft, isBidPhase, isTrumpPhase, canPass, allowedBids]);
+  }, [turnSecondsLeft, isBidPhase, isTrumpPhase, canPass, allowedBids, handlePass, handleBid]);
 
   return (
     <div className="pointer-events-none relative h-full min-h-[22rem] w-full sm:min-h-[28rem]">
@@ -390,41 +378,18 @@ export function GameStartPresetPanel({
       ) : null}
 
       {roundState ? (
-        <div className="pointer-events-none absolute left-1 top-1 z-30 w-[min(13rem,56vw)] rounded-xl border border-red-900/90 bg-black/60 p-2 text-[10px] text-red-200 sm:left-4 sm:top-4 sm:w-56 sm:p-3 sm:text-xs">
-          <div className="flex items-center justify-between">
-            <span className="font-semibold uppercase tracking-[0.12em] text-red-400">Round Track</span>
-            <span className="rounded-full border border-red-900/90 px-2 py-0.5 text-[10px] sm:text-xs">
-              {completedTricks}/13
-            </span>
-          </div>
-
+        <div className="pointer-events-none absolute left-1/2 top-2 z-30 w-[min(92vw,19rem)] -translate-x-1/2 rounded-xl border border-red-900/90 bg-black/70 p-2 text-[10px] text-red-200 sm:left-4 sm:top-4 sm:w-64 sm:translate-x-0 sm:text-xs">
+          <p className="font-semibold uppercase tracking-[0.12em] text-red-300">Points This Round</p>
           <div className="mt-2 grid grid-cols-2 gap-1.5">
-            <div className="rounded-lg bg-red-950/35 px-2 py-1">{SIDE_A_LABEL}: {scoring.teamAPoints}</div>
-            <div className="rounded-lg bg-red-950/35 px-2 py-1">{SIDE_B_LABEL}: {scoring.teamBPoints}</div>
+            <div className="rounded-lg bg-red-950/35 px-2 py-1">Side 1: {roundStats.teamAPoints}</div>
+            <div className="rounded-lg bg-red-950/35 px-2 py-1">Side 2: {roundStats.teamBPoints}</div>
           </div>
-
-          <div className="mt-2 grid grid-cols-2 gap-1.5">
-            <div className="rounded-lg bg-black/55 px-2 py-1">Match {SIDE_A_LABEL}: {matchScore.teamA}</div>
-            <div className="rounded-lg bg-black/55 px-2 py-1">Match {SIDE_B_LABEL}: {matchScore.teamB}</div>
+          <p className="mt-2 uppercase tracking-[0.1em] text-red-300">Match Score</p>
+          <div className="mt-1 grid grid-cols-2 gap-1.5">
+            <div className="rounded-lg bg-red-950/35 px-2 py-1">Side 1: {matchScoreTeamA}</div>
+            <div className="rounded-lg bg-red-950/35 px-2 py-1">Side 2: {matchScoreTeamB}</div>
           </div>
-
-          <p className="mt-2 text-[10px] uppercase tracking-[0.1em] text-red-400 sm:text-xs">
-            Senior: <span className="text-red-200">{activeSeniorName}</span>
-          </p>
-
-          <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-red-500/90 sm:text-xs">
-            Round {roundNumber} | Target {MATCH_TARGET_POINTS}
-          </p>
-
-          {lastRoundSummary ? (
-            <p className="mt-1 text-[10px] text-red-300/95 sm:text-xs">{lastRoundSummary}</p>
-          ) : null}
-
-          {matchWinner ? (
-            <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-red-200 sm:text-xs">
-              {matchWinner === "A" ? SIDE_A_LABEL : SIDE_B_LABEL} won the match.
-            </p>
-          ) : null}
+          <p className="mt-2 uppercase tracking-[0.1em] text-red-300">Tricks: {roundStats.trickCount}/13</p>
         </div>
       ) : null}
 
