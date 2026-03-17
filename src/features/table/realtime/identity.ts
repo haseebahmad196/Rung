@@ -2,8 +2,8 @@ import type { LocalIdentity } from "./types";
 
 const IDENTITY_STORAGE_KEY = "courtpiece-identity-v1";
 
-function canUseBrowserStorage() {
-  return typeof window !== "undefined" && Boolean(window.localStorage);
+function canUseSessionStorage() {
+  return typeof window !== "undefined" && Boolean(window.sessionStorage);
 }
 
 function createRandomId() {
@@ -15,9 +15,9 @@ function createRandomId() {
 }
 
 export function getStoredIdentity(): LocalIdentity | null {
-  if (!canUseBrowserStorage()) return null;
+  if (!canUseSessionStorage()) return null;
 
-  const raw = window.localStorage.getItem(IDENTITY_STORAGE_KEY);
+  const raw = window.sessionStorage.getItem(IDENTITY_STORAGE_KEY);
   if (!raw) return null;
 
   try {
@@ -38,8 +38,8 @@ export function saveIdentity(displayName: string): LocalIdentity {
     updatedAt: now,
   };
 
-  if (canUseBrowserStorage()) {
-    window.localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(next));
+  if (canUseSessionStorage()) {
+    window.sessionStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(next));
   }
 
   return next;

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
@@ -14,7 +15,7 @@ function formatTime(timestamp: number) {
   });
 }
 
-export default function DashboardPage() {
+function DashboardPageContent() {
   const searchParams = useSearchParams();
   const tableId = searchParams.get("table") ?? "main";
   const snapshot = useDashboardSnapshot();
@@ -168,5 +169,23 @@ export default function DashboardPage() {
         </div>
       </Container>
     </main>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgb(65_12_18),rgb(10_6_8)_42%,rgb(0_0_0)_100%)] text-red-100">
+          <Container className="max-w-7xl px-3 pb-8 pt-6 sm:px-4">
+            <Card className="border-red-900/90 bg-black/65 p-4 text-sm text-red-300/80">
+              Loading dashboard...
+            </Card>
+          </Container>
+        </main>
+      }
+    >
+      <DashboardPageContent />
+    </Suspense>
   );
 }

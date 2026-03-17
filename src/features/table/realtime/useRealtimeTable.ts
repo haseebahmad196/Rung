@@ -2,68 +2,122 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { recordPlayerActivity } from "./stats";
-import {
-  claimSeatForPlayer,
-  getSeatNameMap,
-  readTableState,
-  releaseSeatForPlayer,
-  tableChannelName,
-  touchTableMember,
-  upsertTableMember,
-} from "./tableState";
-import type { LocalIdentity, SeatNumber, TableRealtimeState } from "./types";
+import { getSeatNameMap } from "./tableState";
+import type { LocalIdentity, TableRealtimeState } from "./types";
 
 type UseRealtimeTableParams = {
   tableId: string;
   identity: LocalIdentity | null;
 };
 
+function createEmptyState(tableId: string): TableRealtimeState {
+  return {
+    tableId,
+    seats: {
+      1: null,
+      2: null,
+      3: null,
+      4: null,
+    },
+    members: {},
+    updatedAt: Date.now(),
+  };
+}
+
+async function postJson<TResponse>(url: string, body: unknown) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return (await response.json()) as TResponse;
+}
+
 export function useRealtimeTable({ tableId, identity }: UseRealtimeTableParams) {
-  const [state, setState] = useState<TableRealtimeState>(() => readTableState(tableId));
+  const [state, setState] = useState<TableRealtimeState>(() => createEmptyState(tableId));
 
   useEffect(() => {
-    setState(readTableState(tableId));
+    setState(createEmptyState(tableId));
   }, [tableId]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    let active = true;
 
-    const onStorage = (event: StorageEvent) => {
-      if (!event.key || !event.key.endsWith(`:${tableId}`)) return;
-      setState(readTableState(tableId));
+    const load = async () => {
+      const response = await fetch(`/api/realtime/table?tableId=${encodeURIComponent(tableId)}`, {
+        cache: "no-store",
+      });
+
+      if (!response.ok || !active) return;
+
+      const data = (await response.json()) as { state: TableRealtimeState };
+      setState(data.state);
     };
 
-    window.addEventListener("storage", onStorage);
-
-    if (!("BroadcastChannel" in window)) {
-      return () => window.removeEventListener("storage", onStorage);
-    }
-
-    const channel = new BroadcastChannel(tableChannelName(tableId));
-    channel.onmessage = (event: MessageEvent<TableRealtimeState>) => {
-      setState(event.data);
-    };
+    void load();
 
     return () => {
-      channel.close();
-      window.removeEventListener("storage", onStorage);
+      active = false;
+    };
+  }, [tableId]);
+
+  useEffect(() => {
+    const eventSource = new EventSource(`/api/realtime/stream?tableId=${encodeURIComponent(tableId)}`);
+
+    eventSource.addEventListener("state", (event) => {
+      const message = event as MessageEvent<string>;
+
+      try {
+        const next = JSON.parse(message.data) as TableRealtimeState;
+        setState(next);
+      } catch {
+        // ignore malformed payloads
+      }
+    });
+
+    return () => {
+      eventSource.close();
     };
   }, [tableId]);
 
   useEffect(() => {
     if (!identity) return;
 
-    const next = upsertTableMember(tableId, identity);
-    setState(next);
-    recordPlayerActivity(identity.playerId, identity.displayName, Date.now());
+    let active = true;
+
+    const join = async () => {
+      const data = await postJson<{ state: TableRealtimeState }>("/api/realtime/join", {
+        tableId,
+        displayName: identity.displayName,
+        playerId: identity.playerId,
+      });
+
+      if (!data || !active) return;
+
+      setState(data.state);
+      recordPlayerActivity(identity.playerId, identity.displayName, Date.now());
+    };
+
+    void join();
 
     const timer = window.setInterval(() => {
-      const updated = touchTableMember(tableId, identity.playerId);
-      setState(updated);
+      void postJson<{ state: TableRealtimeState }>("/api/realtime/heartbeat", {
+        tableId,
+        playerId: identity.playerId,
+      });
+
       recordPlayerActivity(identity.playerId, identity.displayName, Date.now());
     }, 10000);
 
     return () => {
+      active = false;
       window.clearInterval(timer);
     };
   }, [tableId, identity]);
@@ -80,19 +134,47 @@ export function useRealtimeTable({ tableId, identity }: UseRealtimeTableParams) 
 
   const takenSeatNames = useMemo(() => getSeatNameMap(state), [state]);
 
-  const claimSeat = (seat: number) => {
+  const claimSeat = async (seat: number) => {
     if (!identity) return false;
 
-    const next = claimSeatForPlayer(tableId, identity.playerId, seat as SeatNumber);
+    const memberExists = Boolean(state.members[identity.playerId]);
+    if (!memberExists) {
+      const joined = await postJson<{ state: TableRealtimeState }>("/api/realtime/join", {
+        tableId,
+        displayName: identity.displayName,
+        playerId: identity.playerId,
+      });
+
+      if (!joined) return false;
+      setState(joined.state);
+    }
+
+    const next = await postJson<{ success: boolean; state: TableRealtimeState }>(
+      "/api/realtime/seat/claim",
+      {
+        tableId,
+        playerId: identity.playerId,
+        seat,
+      }
+    );
+
+    if (!next) return false;
+
     setState(next.state);
     recordPlayerActivity(identity.playerId, identity.displayName, Date.now());
     return next.success;
   };
 
-  const releaseSeat = () => {
+  const releaseSeat = async () => {
     if (!identity) return;
-    const next = releaseSeatForPlayer(tableId, identity.playerId);
-    setState(next);
+
+    const next = await postJson<{ state: TableRealtimeState }>("/api/realtime/seat/release", {
+      tableId,
+      playerId: identity.playerId,
+    });
+
+    if (!next) return;
+    setState(next.state);
   };
 
   return {

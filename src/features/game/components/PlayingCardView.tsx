@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { Card } from "../types";
 
 const suitSymbol: Record<Card["suit"], string> = {
@@ -19,29 +20,28 @@ type PlayingCardViewProps = {
   size?: "regular" | "compact";
 };
 
-export function PlayingCardView({ card, size = "regular" }: PlayingCardViewProps) {
+function PlayingCardViewComponent({ card, size = "regular" }: PlayingCardViewProps) {
   const isCompact = size === "compact";
 
   return (
     <div
-      className={`glass-card-anim relative rounded-xl border border-red-200/60 bg-[linear-gradient(160deg,rgba(255,255,255,0.96),rgba(246,246,246,0.9))] p-1 shadow-[0_12px_24px_rgba(0,0,0,0.3)] ${
-        isCompact ? "h-14 w-10 sm:h-20 sm:w-14" : "h-24 w-16 sm:h-28 sm:w-20"
+      className={`relative rounded-lg border border-zinc-300 bg-white p-1 shadow-[0_6px_12px_rgba(0,0,0,0.28)] ${
+        isCompact ? "h-14 w-10 sm:h-[72px] sm:w-[52px]" : "h-[88px] w-[62px] sm:h-[102px] sm:w-[72px]"
       }`}
     >
-      <div className="pointer-events-none absolute inset-0 rounded-xl bg-[linear-gradient(130deg,rgba(255,255,255,0.3),rgba(255,255,255,0.02)_52%,rgba(180,20,40,0.08))]" />
-      <p className={`font-bold ${suitColor[card.suit]} ${isCompact ? "text-[9px] sm:text-[10px]" : "text-[11px] sm:text-xs"}`}>
+      <p className={`font-bold ${suitColor[card.suit]} ${isCompact ? "text-[9px] sm:text-[10px]" : "text-[10px] sm:text-xs"}`}>
         {card.rank}
         {suitSymbol[card.suit]}
       </p>
 
       <div className="absolute inset-0 grid place-items-center">
-        <span className={`${suitColor[card.suit]} ${isCompact ? "text-base sm:text-lg" : "text-xl sm:text-2xl"}`}>
+        <span className={`${suitColor[card.suit]} ${isCompact ? "text-lg sm:text-xl" : "text-2xl sm:text-[30px]"}`}>
           {suitSymbol[card.suit]}
         </span>
       </div>
 
       <p
-        className={`absolute bottom-1 right-1 rotate-180 font-bold ${suitColor[card.suit]} ${isCompact ? "text-[9px] sm:text-[10px]" : "text-[11px] sm:text-xs"}`}
+        className={`absolute bottom-1 right-1 rotate-180 font-bold ${suitColor[card.suit]} ${isCompact ? "text-[9px] sm:text-[10px]" : "text-[10px] sm:text-xs"}`}
       >
         {card.rank}
         {suitSymbol[card.suit]}
@@ -49,3 +49,5 @@ export function PlayingCardView({ card, size = "regular" }: PlayingCardViewProps
     </div>
   );
 }
+
+export const PlayingCardView = memo(PlayingCardViewComponent);

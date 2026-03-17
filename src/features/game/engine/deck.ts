@@ -31,7 +31,19 @@ export function shuffleDeck(cards: Card[], random = Math.random): Card[] {
 }
 
 function secureRandomIndex(maxExclusive: number): number {
+  if (maxExclusive <= 0) {
+    throw new Error("maxExclusive must be greater than zero.");
+  }
+
+  const maxUint32 = 0x1_0000_0000;
+  const limit = maxUint32 - (maxUint32 % maxExclusive);
   const buffer = new Uint32Array(1);
-  globalThis.crypto.getRandomValues(buffer);
-  return buffer[0] % maxExclusive;
+
+  while (true) {
+    globalThis.crypto.getRandomValues(buffer);
+
+    if (buffer[0] < limit) {
+      return buffer[0] % maxExclusive;
+    }
+  }
 }

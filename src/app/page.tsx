@@ -1,84 +1,72 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
-import { getTableByLink, seedChatByTable } from "@/features/table/data";
-import { SeatRing } from "@/features/table/components/SeatRing";
-import { TableChatPanel } from "@/features/table/components/TableChatPanel";
+import { getTableByLink } from "@/features/table/data";
 import { TableNavbar } from "@/features/table/components/TableNavbar";
 import { JoinGateCard } from "@/features/table/components/JoinGateCard";
 import { RulesPanel } from "@/features/table/components/RulesPanel";
+import { getStoredIdentity, saveIdentity, useRealtimeTable } from "@/features/table/realtime";
+import type { LocalIdentity } from "@/features/table/realtime";
 import { GameStartPresetPanel } from "@/features/game/components/GameStartPresetPanel";
-import type { Card as GameCard } from "@/features/game";
 
-export default function Home() {
+function HomeContent() {
   const searchParams = useSearchParams();
   const [nameInput, setNameInput] = useState("");
-  const [playerName, setPlayerName] = useState("");
-  const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
+  const [identity, setIdentity] = useState<LocalIdentity | null>(null);
   const [showRules, setShowRules] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
-  const [tableTrumpCard, setTableTrumpCard] = useState<GameCard | null>(null);
-  const [activeTurnSeat, setActiveTurnSeat] = useState<number | null>(null);
 
   const tableId = searchParams.get("table") ?? searchParams.get("t");
   const selectedTable = useMemo(() => getTableByLink(tableId), [tableId]);
-  const selectedTableTakenSeats = useMemo(
-    () => selectedTable.seatsTaken,
-    [selectedTable.seatsTaken]
-  );
+  const playerName = identity?.displayName ?? "";
+  const { takenSeatNames, selectedSeat, claimSeat, releaseSeat } = useRealtimeTable({
+    tableId: selectedTable.id,
+    identity,
+  });
+
+  const seat1 = takenSeatNames[1] ?? null;
+  const seat2 = takenSeatNames[2] ?? null;
+  const seat3 = takenSeatNames[3] ?? null;
+  const seat4 = takenSeatNames[4] ?? null;
+
+  const stableTakenSeatNames = useMemo(() => {
+    const next: Record<number, string> = {};
+    if (seat1) next[1] = seat1;
+    if (seat2) next[2] = seat2;
+    if (seat3) next[3] = seat3;
+    if (seat4) next[4] = seat4;
+    return next;
+  }, [seat1, seat2, seat3, seat4]);
 
   const canEnterLobby = nameInput.trim().length > 1;
 
+  useEffect(() => {
+    const stored = getStoredIdentity();
+    if (stored?.displayName) {
+      setNameInput(stored.displayName);
+    }
+  }, []);
+
   const enterLobby = () => {
     if (!canEnterLobby) return;
-    setPlayerName(nameInput.trim());
+    const nextIdentity = saveIdentity(nameInput.trim());
+    setIdentity(nextIdentity);
   };
 
-  const seatPlayer = (seatId: number) => {
-    if (selectedTableTakenSeats[seatId]) return;
-    setSelectedSeat(seatId);
-    setTableTrumpCard(null);
-    setActiveTurnSeat(null);
+  const seatPlayer = async (seatId: number) => {
+    const success = await claimSeat(seatId);
+    if (!success) return;
   };
 
   const goHome = () => {
-    setPlayerName("");
-    setSelectedSeat(null);
+    void releaseSeat();
+    setIdentity(null);
     setShowRules(false);
-    setTableTrumpCard(null);
-    setActiveTurnSeat(null);
   };
-
-  const trumpSymbol =
-    tableTrumpCard?.suit === "spades"
-      ? "♠"
-      : tableTrumpCard?.suit === "hearts"
-      ? "♥"
-      : tableTrumpCard?.suit === "diamonds"
-      ? "♦"
-      : tableTrumpCard?.suit === "clubs"
-      ? "♣"
-      : "";
-
-  const trumpLabel =
-    tableTrumpCard?.suit === "spades"
-      ? "Spades"
-      : tableTrumpCard?.suit === "hearts"
-      ? "Hearts"
-      : tableTrumpCard?.suit === "diamonds"
-      ? "Diamonds"
-      : tableTrumpCard?.suit === "clubs"
-      ? "Clubs"
-      : "";
-
-  const trumpTextColorClass =
-    tableTrumpCard?.suit === "hearts" || tableTrumpCard?.suit === "diamonds"
-      ? "text-red-300"
-      : "text-zinc-100";
 
   const focusJoin = () => {
     const input = document.getElementById("join-name-input") as HTMLInputElement | null;
@@ -87,13 +75,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgb(91_14_23),rgb(12_6_8)_40%,rgb(0_0_0)_100%)]">
-      <div className="pointer-events-none absolute inset-0 hidden overflow-hidden sm:block">
-        <div className="absolute -top-10 left-4 text-7xl text-red-400/10">♠</div>
-        <div className="absolute top-20 right-6 text-6xl text-red-300/10">♥</div>
-        <div className="absolute bottom-16 left-8 text-6xl text-red-500/10">♦</div>
-        <div className="absolute bottom-8 right-5 text-7xl text-red-400/10">♣</div>
-      </div>
-
       <Container className="relative max-w-7xl px-3 pb-4 pt-14 sm:px-4 sm:py-8">
         <TableNavbar
           isMuted={isMuted}
@@ -110,7 +91,7 @@ export default function Home() {
           onCloseMenu={() => setShowMenu(false)}
         />
 
-        {!playerName ? (
+        {!identity ? (
           <JoinGateCard
             tableId={selectedTable.id}
             nameInput={nameInput}
@@ -119,57 +100,44 @@ export default function Home() {
             onEnterLobby={enterLobby}
           />
         ) : (
-          <div className="space-y-3 sm:space-y-4">
-            <Card className="relative min-h-[66vh] border-transparent bg-[linear-gradient(135deg,rgba(40,6,10,0.55),rgba(0,0,0,0.6))] p-2.5 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur-md sm:min-h-0 sm:p-6">
+          <div>
+            <Card className="relative min-h-[74vh] overflow-hidden border border-red-950/60 bg-black p-0 shadow-[0_24px_60px_rgba(0,0,0,0.52)] sm:min-h-[78vh]">
               <RulesPanel
                 showRules={showRules}
                 onToggleRules={() => setShowRules((prev) => !prev)}
               />
 
-              <SeatRing
-                title={selectedTable.title}
-                selectedSeat={selectedSeat}
-                activeSeat={activeTurnSeat}
-                playerName={playerName}
-                takenSeats={selectedTableTakenSeats}
-                onSeatSelect={seatPlayer}
-              />
-
-              {tableTrumpCard ? (
-                <div className="pointer-events-none absolute left-2 top-[73%] z-20 -translate-y-1/2 text-center sm:left-4 sm:top-[70%]">
-                  <div className="flex w-[64px] flex-col items-center rounded-xl border border-red-800/90 bg-[linear-gradient(145deg,rgba(16,16,20,0.92),rgba(0,0,0,0.96))] px-2 py-2 shadow-[0_8px_20px_rgba(0,0,0,0.5)] sm:w-[72px]">
-                    <span className={`text-2xl font-black leading-none sm:text-3xl ${trumpTextColorClass}`}>
-                      {trumpSymbol}
-                    </span>
-                    <span className={`mt-1 text-[9px] font-bold uppercase tracking-[0.1em] sm:text-[10px] ${trumpTextColorClass}`}>
-                      {trumpLabel}
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-
-              {selectedSeat ? (
-                <div className="absolute inset-0 z-30 px-1 py-1 sm:px-2 sm:py-2">
-                  <GameStartPresetPanel
-                    localPlayerName={playerName}
-                    localSeatNumber={selectedSeat}
-                    takenSeats={selectedTableTakenSeats}
-                    onTrumpSelected={setTableTrumpCard}
-                    onActiveSeatChange={setActiveTurnSeat}
-                  />
-                </div>
-              ) : null}
+              <div className="absolute inset-0 z-10">
+                <GameStartPresetPanel
+                  tableId={selectedTable.id}
+                  localPlayerId={identity.playerId}
+                  localSeatNumber={selectedSeat}
+                  takenSeats={stableTakenSeatNames}
+                  onSeatSelect={seatPlayer}
+                />
+              </div>
             </Card>
-
-            <TableChatPanel
-              tableId={selectedTable.id}
-              playerName={playerName}
-              selectedSeat={selectedSeat}
-              seedMessages={seedChatByTable[selectedTable.id] ?? []}
-            />
           </div>
         )}
       </Container>
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgb(91_14_23),rgb(12_6_8)_40%,rgb(0_0_0)_100%)]">
+          <Container className="relative max-w-7xl px-3 pb-4 pt-14 sm:px-4 sm:py-8">
+            <Card className="border-transparent bg-black/50 p-4 text-sm text-red-200/90">
+              Loading table...
+            </Card>
+          </Container>
+        </main>
+      }
+    >
+      <HomeContent />
+    </Suspense>
   );
 }

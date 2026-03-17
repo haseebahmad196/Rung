@@ -47,10 +47,11 @@ export function createBiddingState(
 }
 
 export function getCurrentTurnPlayerId(state: BiddingState): PlayerId {
-  if (state.currentTurnOffset >= state.turnOrder.length) {
-    return state.turnOrder[state.turnOrder.length - 1];
+  if (state.turnOrder.length === 0) {
+    throw new Error("Bidding turn order cannot be empty.");
   }
-  return state.turnOrder[state.currentTurnOffset];
+
+  return state.turnOrder[state.currentTurnOffset % state.turnOrder.length];
 }
 
 export function getCurrentPlayer(state: BiddingState) {
@@ -99,7 +100,7 @@ export function applyBidDecision(
 
     const nextOffset = state.currentTurnOffset + 1;
 
-    if (state.highestBid && (passesSinceLastBid >= 3 || nextOffset >= state.turnOrder.length)) {
+    if (state.highestBid && passesSinceLastBid >= 3) {
       return {
         ...state,
         history: [...state.history, { playerId, action: "pass" }],
@@ -133,8 +134,7 @@ export function applyBidDecision(
   const isTerminalBid = decision.bid === 13 || decision.bid === 7;
   const nextOffset = state.currentTurnOffset + 1;
 
-  const shouldComplete =
-    isTerminalBid || nextOffset >= state.turnOrder.length;
+  const shouldComplete = isTerminalBid;
 
   return {
     ...state,
@@ -149,7 +149,7 @@ export function applyBidDecision(
     ],
     passesSinceLastBid: 0,
     passesWithoutBid: 0,
-    currentTurnOffset: shouldComplete ? nextOffset : nextOffset,
+    currentTurnOffset: nextOffset,
     isComplete: shouldComplete,
     winnerPlayerId: shouldComplete ? nextHighest.playerId : null,
   };
